@@ -1,0 +1,1 @@
+[false, "ls\u3001rm The command does not have an alias configured or is configured incorrectly", 1691287681, 0.001072]

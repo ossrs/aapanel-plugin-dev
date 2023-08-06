@@ -1,0 +1,9 @@
+{
+  "title": "宝塔插件示例",
+  "name": "example",
+  "ps": "宝塔插件HelloWorld",
+  "versions": "1.0",
+  "checks": "/www/server/panel/plugin/example",
+  "author": "Winlin",
+  "home": "https://github.com/winlinvip/bt-plugin-dev"
+}

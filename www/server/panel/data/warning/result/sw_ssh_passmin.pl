@@ -1,0 +1,1 @@
+[false, "\u3010/etc/login.defs\u3011In the file, PASS_MIN_DAYS is greater than or equal to 7", 1691287680, 0.000268]
