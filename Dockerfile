@@ -48,7 +48,7 @@ RUN cd /tmp && \
     env panelPort=7800 go=y bash install.sh aapanel
 
 # Enable the develop debug mode and reset some params.
-RUN echo '/srscloud' > /www/server/panel/data/admin_path.pl && \
+RUN echo '/srsstack' > /www/server/panel/data/admin_path.pl && \
     echo 'True' > /www/server/panel/data/debug.pl && \
     cd /www/server/panel && btpython -c 'import tools;tools.set_panel_username("ossrs")' && \
     cd /www/server/panel && btpython -c 'import tools;tools.set_panel_pwd("12345678")'

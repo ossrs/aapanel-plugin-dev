@@ -27,11 +27,11 @@ python test.py
 #setup path: /www/server
 ```
 
-Now you are able to develop the `example` plugin, or link srs-cloud and develop it:
+Now you are able to develop the `example` plugin, or link srs-stack and develop it:
 
 ```bash
-ln -sf ~/git/srs-cloud/scripts/setup-bt
-ln -sf ~/git/srs-cloud/scripts/setup-aapanel
+ln -sf ~/git/srs-stack/scripts/setup-bt
+ln -sf ~/git/srs-stack/scripts/setup-aapanel
 ```
 
 Then, run aaPanel docker and mount the plugin to the container.
@@ -49,7 +49,7 @@ docker run -p 7800:7800 -v $(pwd)/example:/www/server/panel/plugin/example \
 
 > Note: For user in China, you can use `registry.cn-hangzhou.aliyuncs.com/ossrs/aapanel-plugin-dev:1` instead.
 
-Open [http://localhost:7800/srscloud](http://localhost:7800/srscloud) and login:
+Open [http://localhost:7800/srsstack](http://localhost:7800/srsstack) and login:
 
 * Username: `ossrs`
 * Password: `12345678`

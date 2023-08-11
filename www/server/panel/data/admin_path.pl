@@ -1,1 +1,1 @@
-/srscloud
+/srsstack
