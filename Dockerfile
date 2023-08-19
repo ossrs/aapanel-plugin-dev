@@ -2,6 +2,7 @@ ARG ARCH
 
 FROM ${ARCH}ossrs/node:18 AS node
 FROM ${ARCH}ossrs/srs:ubuntu20 AS go
+FROM ${ARCH}ossrs/srs:tools AS tools
 
 # Usage:
 # Build image:
@@ -20,6 +21,8 @@ FROM ${ARCH}jrei/systemd-ubuntu:focal AS dist
 # Copy nodejs for ui build.
 COPY --from=node /usr/local/bin /usr/local/bin
 COPY --from=node /usr/local/lib /usr/local/lib
+# Copy FFmpeg for tests.
+COPY --from=tools /usr/local/bin/ffmpeg /usr/local/bin/ffprobe /usr/local/bin/
 # For build platform in docker.
 COPY --from=go /usr/local/go /usr/local/go
 ENV PATH=$PATH:/usr/local/go/bin
