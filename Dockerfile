@@ -62,4 +62,4 @@ RUN echo '/srsstack' > /www/server/panel/data/admin_path.pl && \
 RUN cd /tmp && \
     echo "Install NGINX for aaPanel." && \
     curl -sSL https://node.aapanel.com/install/4/lib.sh |bash -s -- && \
-    curl -sSL https://node.aapanel.com/install/4/nginx.sh |bash -s -- install 1.22
+    curl -sSL https://node.aapanel.com/install/4/nginx.sh |bash -s -- install 1.21
