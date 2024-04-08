@@ -18,6 +18,8 @@ FROM ${ARCH}ossrs/srs:tools AS tools
 # See https://hub.docker.com/r/jrei/systemd-ubuntu/tags
 FROM ${ARCH}jrei/systemd-ubuntu:focal AS dist
 
+ARG TARGETARCH
+
 # Copy nodejs for ui build.
 COPY --from=node /usr/local/bin /usr/local/bin
 COPY --from=node /usr/local/lib /usr/local/lib
@@ -56,10 +58,15 @@ RUN echo '/srsstack' > /www/server/panel/data/admin_path.pl && \
     cd /www/server/panel && btpython -c 'import tools;tools.set_panel_username("ossrs")' && \
     cd /www/server/panel && btpython -c 'import tools;tools.set_panel_pwd("12345678")'
 
+RUN cd /tmp && \
+    echo "Install libs for aaPanel." && \
+    curl -sSL https://node.aapanel.com/install/4/lib.sh |bash -s --
+
 # Note: We install nginx 1.22 by default, like:
 #       http://localhost:7800/plugin?action=install_plugin
 #       sName=nginx&version=1.22&min_version=1&type=1
-RUN cd /tmp && \
-    echo "Install NGINX for aaPanel." && \
-    curl -sSL https://node.aapanel.com/install/4/lib.sh |bash -s -- && \
-    curl -sSL https://node.aapanel.com/install/4/nginx.sh |bash -s -- install 1.21
+RUN if [[ $TARGETARCH != 'arm64' ]]; then \
+      cd /tmp && \
+      echo "Install NGINX for aaPanel." && \
+      curl -sSL https://node.aapanel.com/install/4/nginx.sh |bash -s -- install 1.22; \
+    fi
