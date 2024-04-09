@@ -26,7 +26,7 @@ UBUNTU_VER=$(cat /etc/issue|grep -i ubuntu|awk '{print $2}'|cut -d. -f1)
 DEBIAN_VER=$(cat /etc/issue|grep -i debian|awk '{print $3}')
 if [ "${UBUNTU_VER}" == "18" ] || [ "${UBUNTU_VER}" == "20" ];then
 	debPath="u${UBUNTU_VER}"
-elif [ "${DEBIAN_VER}" == "10" ] || [ "${DEBIAN_VER}" == "11" ]; then
+elif [ "${DEBIAN_VER}" == "10" ] || [ "${DEBIAN_VER}" == "11" ] || [ "${DEBIAN_VER}" == "12" ]; then
 	debPath="d${DEBIAN_VER}"
 fi
 
@@ -249,7 +249,7 @@ Install_Lib()
 	fi
 
 	Install_Aptlib
-	Install_Sendmail
+# 	Install_Sendmail
 	Run_User="www"
 	groupadd ${Run_User}
 	useradd -s /sbin/nologin -g ${Run_User} ${Run_User}

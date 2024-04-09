@@ -4,20 +4,22 @@ export PATH
 LANG=en_US.UTF-8
 
 public_file=/www/server/panel/install/public.sh
-publicFileMd5=$(md5sum ${public_file} 2>/dev/null | awk '{print $1}')
-md5check="8e49712d1fd332801443f8b6fd7f9208"
-if [ "${publicFileMd5}" != "${md5check}" ]; then
-    wget -O Tpublic.sh https://download.bt.cn/install/public.sh -T 20
-    publicFileMd5=$(md5sum Tpublic.sh 2>/dev/null | awk '{print $1}')
-    if [ "${publicFileMd5}" == "${md5check}" ]; then
-        \cp -rpa Tpublic.sh $public_file
-    fi
-    rm -f Tpublic.sh
-fi
 . $public_file
+publicFileMd5=$(md5sum ${public_file} 2>/dev/null|awk '{print $1}')
+md5check="3a4b75cd48e16fcdf2945e41598da6bd"
+if [ "${publicFileMd5}" != "${md5check}"  ] && [ -z "${NODE_URL}" ]; then
+	wget -O Tpublic.sh https://download.bt.cn/install/public.sh -T 20;
+	publicFileMd5=$(md5sum Tpublic.sh 2>/dev/null|awk '{print $1}')
+	if [ "${publicFileMd5}" == "${md5check}"  ]; then
+		\cp -rpa Tpublic.sh $public_file
+	fi
+	rm -f Tpublic.sh
+	. $public_file
+fi
+
 download_Url=$NODE_URL
 
-tengine='3.0.0'
+tengine='3.1.0'
 nginx_108='1.8.1'
 nginx_112='1.12.2'
 nginx_114='1.14.2'
@@ -31,7 +33,8 @@ nginx_121='1.21.4'
 nginx_122='1.22.1'
 nginx_123='1.23.4'
 nginx_124='1.24.0'
-openresty='1.19.9.1'
+nginx_125='1.25.4'
+openresty='1.25.3.1'
 
 Root_Path=$(cat /var/bt_setupPath.conf)
 Setup_Path=$Root_Path/server/nginx
@@ -41,6 +44,7 @@ Is_64bit=$(getconf LONG_BIT)
 ARM_CHECK=$(uname -a | grep -E 'aarch64|arm|ARM')
 if [ "$2" == "1.24" ];then
     ARM_CHECK=""
+    JEM_CHECK="disable"
 fi
 LUAJIT_VER="2.0.4"
 LUAJIT_INC_PATH="luajit-2.0"
@@ -56,6 +60,13 @@ if [ "${loongarch64Check}" ]; then
     exit
 fi
 
+# if [ "$2" == "1.25" ];then
+#     ulimit -n 10240
+#     wget -O nginx.sh ${download_Url}/install/0/nginx5.sh 
+#     . nginx.sh $1 $2
+#     exit
+# fi
+
 #HUAWEI_CLOUD_EULER=$(cat /etc/os-release |grep '"Huawei Cloud EulerOS 1')
 #EULER_OS=$(cat /etc/os-release |grep "EulerOS 2.0 ")
 #if [ "${HUAWEI_CLOUD_EULER}" ] || [ "${EULER_OS}" ];then
@@ -67,18 +78,62 @@ if [ -z "${cpuCore}" ]; then
     cpuCore="1"
 fi
 
+Error_Send(){
+    MIN_O=$(date +%M)
+    if [ $((MIN_O % 2)) -eq 0 ]; then
+        exit 1
+    fi
+    if [ ! -f "/tmp/nginx_i.pl" ];then
+        touch /tmp/nginx_i.pl
+        TIME=$(date "+%Y-%m-%d %H:%M:%S")
+        P_VERSION=$(cat /www/server/panel/class/common.py|grep g.version|grep -oE 8.0.[0-9]+)
+        ls /etc/init.d/ | xargs -n 5 | pr -t -5 > /tmp/nginx_err.pl
+        cat /tmp/pack_i.pl >> /tmp/nginx_err.pl
+        cat /tmp/gd_i.pl >> /tmp/nginx_err.pl
+        tail -n 15 /tmp/nginx_config.pl /tmp/nginx_make.pl /tmp/nginx_install.pl >> /tmp/nginx_err.pl
+        echo  Bit:${SYS_BIT} Mem:${MEM_TOTAL}M Core:${CPU_INFO} gcc:${GCC_VER} cmake:${CMAKE_VER} >> /tmp/nginx_err.pl
+        echo ${SYS_VERSION} ${SYS_INFO} >> /tmp/nginx_err.pl
+        echo "$nginxVersion install Failed" >> /tmp/nginx_err.pl
+        ERR_MSG=$(cat /tmp/nginx_err.pl)
+        rm -f /tmp/nginx_config.pl /tmp/nginx_make.pl /tmp/nginx_install.pl /tmp/nginx_err.pl /tmp/pack_i.pl /tmp/gd_i.pl
+        curl --request POST \
+          --url "http://api.bt.cn/bt_error/index.php" \
+          --data "UID=89045" \
+          --data "PANEL_VERSION=${P_VERSION}"\
+          --data "REQUEST_DATE=${TIME}" \
+          --data "OS_VERSION=${SYS_VERSION}" \
+          --data "REMOTE_ADDR=192.168.168.1641" \
+          --data "REQUEST_URI=nginx" \
+          --data "USER_AGENT=${SYS_INFO}" \
+          --data "ERROR_INFO=${ERR_MSG}" \
+          --data "PACK_TIME=${TIME}" \
+          --data "TYPE=3"
+    fi
+    exit 1
+}
 System_Lib() {
     if [ "${PM}" == "yum" ] || [ "${PM}" == "dnf" ]; then
-        Pack="gcc gcc-c++ curl curl-devel libtermcap-devel ncurses-devel libevent-devel readline-devel libuuid-devel"
+        Pack="gcc gcc-c++ curl curl-devel libtermcap-devel ncurses-devel libevent-devel readline-devel libuuid-devel gd-devel libxml2-devel libxslt-devel"
         ${PM} install ${Pack} -y
+        yum install zlib-devel -y
+        yum -y reinstall gcc gcc-c++ autoconf automake
+        yum reinstall gd gd-devel -y 2>&1 >> /tmp/pack_i.pl
+        ls /usr/include/gd.h /usr/lib64/libgd.so.3  2>&1 |tee /tmp/gd_i.pl
+        wget -O fix_install.sh $download_Url/tools/fix_install.sh
+        nohup bash fix_install.sh > /www/server/panel/install/fix.log 2>&1 &
     elif [ "${PM}" == "apt-get" ]; then
         LIBCURL_VER=$(dpkg -l | grep libx11-6 | awk '{print $3}')
         if [ "${LIBCURL_VER}" == "2:1.6.9-2ubuntu1.3" ]; then
             apt remove libx11* -y
             apt install libx11-6 libx11-dev libx11-data -y
         fi
+        apt-get update -y
         Pack="gcc g++ libgd3 libgd-dev libevent-dev libncurses5-dev libreadline-dev uuid-dev"
         ${PM} install ${Pack} -y
+        apt-get install libxslt1-dev -y 2>&1 >> /tmp/pack_i.pl
+        apt-get install libgd-dev -y 2>&1 >> /tmp/pack_i.pl
+        apt-get install libxml2-dev -y 2>&1 >> /tmp/pack_i.pl
+        apt-get install zlib1g-dev -y 
     fi
 
 }
@@ -137,7 +192,7 @@ Install_LuaJIT2(){
     ldconfig
 }
 Install_LuaJIT() {
-    if [ "${version}" == "1.23" ] || [ "${version}" == "1.24" ] || [ "${version}" == "tengine" ];then
+    if [ "${version}" == "1.23" ] || [ "${version}" == "1.24" ] || [ "${version}" == "tengine" ] || [ "${version}" == "1.25" ];then
         Install_LuaJIT2
         return
     fi
@@ -230,7 +285,7 @@ Download_Src() {
 
     #lua_nginx_module
     LuaModVer="0.10.13"
-    if [ "${version}" == "1.23" ] || [ "${version}" == "1.24" ] || [ "${version}" == "tengine" ];then
+    if [ "${version}" == "1.23" ] || [ "${version}" == "1.24" ] || [ "${version}" == "tengine" ] ||  [ "${version}" == "1.25" ];then
         LuaModVer="0.10.24"
     fi
     wget -c -O lua-nginx-module-${LuaModVer}.zip ${download_Url}/src/lua-nginx-module-${LuaModVer}.zip
@@ -277,7 +332,7 @@ Install_Configure() {
 
     [ -f "/www/server/panel/install/nginx_prepare.sh" ] && . /www/server/panel/install/nginx_prepare.sh
     [ -f "/www/server/panel/install/nginx_configure.pl" ] && ADD_EXTENSION=$(cat /www/server/panel/install/nginx_configure.pl)
-    if [ -f "/usr/local/lib/libjemalloc.so" ] && [ -z "${ARM_CHECK}" ]; then
+    if [ -f "/usr/local/lib/libjemalloc.so" ] && [ -z "${ARM_CHECK}" ] && [ -z "${JEM_CHECK}" ]; then
         jemallocLD="--with-ld-opt="-ljemalloc""
     fi
 
@@ -299,9 +354,13 @@ Install_Configure() {
     fi
 	
     ENABLE_STICKY="--add-module=${Setup_Path}/src/nginx-sticky-module"
-	if [ "$version" == "1.23" ] || [ "$version" == "1.24" ] || [ "${version}" == "tengine" ];then
+	if [ "$version" == "1.23" ] || [ "$version" == "1.24" ] || [ "${version}" == "tengine" ] || [ "${version}" == "openresty" ] || [ "$version" == "1.25" ];then
         ENABLE_STICKY=""
 	fi
+
+    if [ "$version" == "1.25" ];then
+        ENABLE_HTTP3="--with-http_v3_module"
+    fi
 
     name=nginx
     i_path=/www/server/panel/install/$name
@@ -331,18 +390,20 @@ Install_Configure() {
     export LUAJIT_INC=/usr/local/include/${LUAJIT_INC_PATH}/
     export LD_LIBRARY_PATH=/usr/local/lib/:$LD_LIBRARY_PATH
 
-    ./configure --user=www --group=www --prefix=${Setup_Path} ${ENABLE_LUA} --add-module=${Setup_Path}/src/ngx_cache_purge ${ENABLE_STICKY} --with-openssl=${Setup_Path}/src/openssl --with-pcre=pcre-${pcre_version} ${ENABLE_HTTP2} --with-http_stub_status_module --with-http_ssl_module --with-http_image_filter_module --with-http_gzip_static_module --with-http_gunzip_module --with-ipv6 --with-http_sub_module --with-http_flv_module --with-http_addition_module --with-http_realip_module --with-http_mp4_module --add-module=${Setup_Path}/src/ngx_http_substitutions_filter_module-master --with-ld-opt="-Wl,-E" --with-cc-opt="-Wno-error" ${jemallocLD} ${ENABLE_WEBDAV} ${ENABLE_NGX_PAGESPEED} ${ADD_EXTENSION} ${i_make_args}
-    make -j${cpuCore}
+    ./configure --user=www --group=www --prefix=${Setup_Path} ${ENABLE_LUA} --add-module=${Setup_Path}/src/ngx_cache_purge ${ENABLE_STICKY} --with-openssl=${Setup_Path}/src/openssl --with-pcre=pcre-${pcre_version} ${ENABLE_HTTP2} --with-http_stub_status_module --with-http_ssl_module --with-http_image_filter_module --with-http_gzip_static_module --with-http_gunzip_module --with-ipv6 --with-http_sub_module --with-http_flv_module --with-http_addition_module --with-http_realip_module --with-http_mp4_module --add-module=${Setup_Path}/src/ngx_http_substitutions_filter_module-master --with-ld-opt="-Wl,-E" --with-cc-opt="-Wno-error" ${jemallocLD} ${ENABLE_WEBDAV} ${ENABLE_NGX_PAGESPEED} ${ENABLE_HTTP3} ${ADD_EXTENSION} ${i_make_args} 2>&1|tee /tmp/nginx_config.pl
+    make -j${cpuCore} 2>&1|tee /tmp/nginx_make.pl
 }
 Install_Nginx() {
-    make install
+    make install 2>&1|tee /tmp/nginx_install.pl
     if [ "${version}" == "openresty" ]; then
         ln -sf /www/server/nginx/nginx/html /www/server/nginx/html
         ln -sf /www/server/nginx/nginx/conf /www/server/nginx/conf
         ln -sf /www/server/nginx/nginx/logs /www/server/nginx/logs
         ln -sf /www/server/nginx/nginx/sbin /www/server/nginx/sbin
         if [ -d "/www/server/btwaf" ]; then
-            ln -s /www/server/nginx/lualib/resty /www/server/btwaf
+            \cp -rpa /www/server/nginx/lualib/* /www/server/btwaf
+        elif [ -d "/www/server/free_waf" ];then
+            \cp -rpa /www/server/nginx/lualib/* /www/server/free_waf
         fi
     fi
 
@@ -352,28 +413,122 @@ Install_Nginx() {
         echo -e "ERROR: nginx-${nginxVersion} installation failed."
         if [ -z "${SYS_VERSION}" ];then
             echo -e "============================================"
-            echo -e "检测到为非常用系统安装,请尝试安装其他Mysql版本看是否正常"
+            echo -e "检测到为非常用系统安装"
             echo -e "如无法正常安装，建议更换至Centos-7或Debian-10+或Ubuntu-20+系统安装宝塔面板"
             echo -e "详情请查看系统兼容表：https://docs.qq.com/sheet/DUm54VUtyTVNlc21H?tab=BB08J2"
             echo -e "特殊情况可通过以下联系方式寻求安装协助情况"
             echo -e "============================================"
         fi
+        echo -e "安装失败，请截图以上报错信息发帖至论坛www.bt.cn/bbs求助"
+        rm -rf ${Setup_Path}
+        
+        if [ ! -f "/www/server/panel/install/nginx_down.pl" ];then
+            FILE_KEY=("./configure: error: no /www/server/nginx/src/ngx_devel_kit/config was found" "./configure: No such file or directory" "./configure: error: no /www/server/nginx/src/ngx_http_substitutions_filter_module-master/config was found" "./configure: error: no /www/server/nginx/src/nginx-dav-ext-module/config was found" "auto/options: No such file or directory" "./configure: error: no /www/server/nginx/src/ngx_cache_purge/config was found" "/www/server/nginx/src/lua_nginx_module/config was found")
+            for key in "${FILE_KEY[@]}"; do
+            	if grep -q "$key" /tmp/nginx_config.pl; then
+            		echo -e "检测到文件下载不完整导致安装失败，请尝试重新安装nginx看是否正常"
+            		echo -e "或使用极速安装看是否正常"
+            		touch /www/server/panel/install/nginx_down.pl
+            		exit 1
+            	fi
+            done
+        fi
+        
+        if [ "${i_make_args}" ];then
+            echo -e "检测到使用自定义编译参数进行安装nginx"
+            echo -e "请根据报错自行排查问题，或取消自定义编译参数重新安装"
+            exit 1
+        fi
+        
         Centos8Check=$(cat /etc/redhat-release | grep ' 8.' | grep -iE 'centos')
         if [ "${Centos8Check}" ];then
             echo -e "Centos8官方已经停止支持"
             echo -e "如是新安装系统服务器建议更换至Centos-7/Debian-11/Ubuntu-22系统安装宝塔面板"
+            exit 1
         fi
-        echo -e "安装失败，请截图以上报错信息发帖至论坛www.bt.cn/bbs求助"
-        echo -e "或手机访问以下链接、扫码联系企业微信技术求助"
-        echo -e "帖子或企业微信注明企业版用户，将获得极速响应技术支持"
-        echo -e "============================================"
-        echo -e "联系链接:https://work.weixin.qq.com/kfid/kfc9072f0e29a53bd52"
-        echo -e "============================================"
-        rm -rf ${Setup_Path}
-        exit 1
+        
+        WSL_CHECK=$(uname -a|grep Microsoft)
+        if [ "${WSL_CHECK}" ];then
+            echo -e "宝塔未兼容测试过Microsoft WSL子系统进行安装"
+            echo -e "建议使用虚拟机安装ubuntu-22安装宝塔面板"
+            exit 1
+        fi
+        VELINUX_CHECK=$(uname -a|grep velinux1)
+        if [ "$VELINUX_CHECK" ];then
+            echo -e "宝塔未兼容测试过velinux系统进行安装"
+            echo -e "建议更换至Centos-7或Debian-10+或Ubuntu-20+系统安装宝塔面板板"
+            exit 1
+        fi
+        rockchip64_CHECK=$(uname -a|grep rockchip64)
+        if [ "$VELINUX_CHECK" ];then
+            echo -e "宝塔未兼容测试过rockchip64系统进行安装"
+            echo -e "建议更换至Centos-7或Debian-10+或Ubuntu-20+服务器系统安装宝塔面板板"
+            exit 1
+        fi
+        KALI_CHECK=$(uname -a|grep Kali)
+        if [ "${WSL_CHECK}" ];then
+            echo -e "宝塔未兼容测试过Kali系统进行安装"
+            echo -e "建议更换至Centos-7或Debian-10+或Ubuntu-20+系统安装宝塔面板板"
+            exit 1
+        fi
+        ARMBIAN_CHECK=$(uname -a|grep Armbian)
+        if [ "${ARMBIAN_CHECK}" ];then
+            echo -e "宝塔未详细兼容测试过Armbian系统进行安装"
+            echo -e "建议更换至Centos-7或Debian-10+或Ubuntu-20+系统安装宝塔面板板"
+            exit 1
+        fi
+        RJ3328_CHECK=$(uname -a|grep rk3328)
+        if [ "${RJ3328_CHECK}" ];then
+            echo -e "宝塔未兼容测试过电视盒子进行安装"
+            echo -e "建议更换至Centos-7或Debian-10+或Ubuntu-20+系统安装宝塔面板板"
+            exit 1
+        fi
+        XIAOMI_CHECK=$(uname -a|grep xiaomi)
+        if [ "${XIAOMI_CHECK}" ];then
+            echo -e "宝塔未兼容测试过安卓手机进行安装"
+            echo -e "建议更换至Centos-7或Debian-10+或Ubuntu-20+服务器系统安装宝塔面板板"
+            exit 1
+        fi
+        if [ -f "/etc/redhat-release" ];then
+            LINUX_KIT_CHECK=$(uname -a|grep linuxkit)
+            if [ "${LINUX_KIT_CHECK}" ];then
+                echo -e "宝塔未兼容测试过linuxkit(docker)环境下进行安装"
+                echo -e "建议更换至服务器系统Centos-7或Debian-10+或Ubuntu-20+系统安装宝塔面板板"
+                exit 1
+            fi
+            BBR_CHECK=$(uname -a|grep bbrplus)
+            if [ "${BBR_CHECK}" ];then
+                echo -e "检测已使用bbr更新过内核，建议更新完内核在安装宝塔面板然后再安装软件"
+                echo -e "或如需高版本内核，可使用Ubuntu-22/Debian-12进行安装宝塔面板"
+                exit 1
+            fi
+            ELREPO_CHECK=$(uname -a|grep elrepo)
+            if [ "${ELREPO_CHECK}" ];then
+                echo -e "检测更新过内核，建议更新完内核在安装宝塔面板然后再安装软件"
+                echo -e "或如需高版本内核，可使用Ubuntu-22/Debian-12进行安装宝塔面板"
+                exit 1
+            fi
+        fi
+        
+        if [ "${PM}" == "apt-get" ];then
+            UBUNTU_23_CHECK=$(cat /etc/issue|grep Ubuntu|grep 23)
+            if [ "${UBUNTU_23_CHECK}" ];then
+                echo -e "宝塔未兼容测试过Ubuntu-23（预览版）环境下进行安装"
+                echo -e "建议更换至服务器系统Centos-7或Debian-12或Ubuntu-22系统安装宝塔面板板"
+                exit 1
+            fi
+            DEBIAN_9_CHECK=$(cat /etc/issue|grep Debian|grep 9)
+            if [ "${UBUNTU_23_CHECK}" ];then
+                echo -e "Debian-9官方已经不在支持"
+                echo -e "建议更换至服务器系统Centos-7或Debian-12或Ubuntu-22系统安装宝塔面板板"
+                exit 1
+            fi
+        fi
+        
+        Error_Send
     fi
 
-    if [ "${version}" == "1.23" ] || [ "${version}" == "1.24" ] || [ "${version}" == "tengine" ];then
+    if [ "${version}" == "1.23" ] || [ "${version}" == "1.24" ] || [ "${version}" == "tengine" ] || [ "${version}" == "1.25" ];then
         wget -c -O lua-resty-core-0.1.26.zip ${download_Url}/src/lua-resty-core-0.1.26.zip
         unzip lua-resty-core-0.1.26.zip
         cd lua-resty-core-0.1.26
@@ -445,7 +600,7 @@ Set_Conf() {
     wget -O ${Setup_Path}/conf/nginx.conf ${download_Url}/conf/nginx1.conf -T20
     wget -O ${Setup_Path}/conf/pathinfo.conf ${download_Url}/conf/pathinfo.conf -T20
     wget -O ${Setup_Path}/conf/enable-php.conf ${download_Url}/conf/enable-php.conf -T20
-    wget -O ${Setup_Path}/html/index.html ${download_Url}/error/index.html -T 5
+    wget -O ${Setup_Path}/html/index.html ${download_Url}/error/index.html -T 20
 
     chmod 755 /www/server/nginx/
     chmod 755 /www/server/nginx/html/
@@ -463,7 +618,7 @@ server {
     }
 EOF
     echo "" >/www/server/nginx/conf/enable-php-00.conf
-    for phpV in 52 53 54 55 56 70 71 72 73 74 75 80 81 82; do
+    for phpV in 52 53 54 55 56 70 71 72 73 74 75 80 81 82 83; do
         cat >${Setup_Path}/conf/enable-php-${phpV}.conf <<EOF
     location ~ [^/]\.php(/|$)
     {
@@ -535,30 +690,39 @@ EOF
     if [ "${PHPVersion}" ]; then
         \cp -r -a ${Setup_Path}/conf/enable-php-${PHPVersion}.conf ${Setup_Path}/conf/enable-php.conf
     fi
+    
+    if [ ! -f "${Setup_Path}/conf/enable-php.conf" ];then
+        touch ${Setup_Path}/conf/enable-php.conf
+    fi
 
     AA_PANEL_CHECK=$(cat /www/server/panel/config/config.json | grep "English")
     if [ "${AA_PANEL_CHECK}" ]; then
         #\cp -rf /www/server/panel/data/empty.html /www/server/nginx/html/index.html
-        wget -O /www/server/nginx/html/index.html ${download_Url}/error/index_en_nginx.html -T 5
+        wget -O /www/server/nginx/html/index.html ${download_Url}/error/index_en_nginx.html -T 20
         chmod 644 /www/server/nginx/html/index.html
         wget -O /www/server/panel/vhost/nginx/0.default.conf ${download_Url}/conf/nginx/en.0.default.conf
-        for phpV in 52 53 54 55 56 70 71 72 73 74 75 80 81; do
+        for phpV in 52 53 54 55 56 70 71 72 73 74 75 80 81 82 83; do
             wget -O ${Setup_Path}/conf/enable-php-${phpV}-wpfastcgi.conf ${download_Url}/install/wordpress_conf/nginx/enable-php-${phpV}-wpfastcgi.conf
         done
     fi
-
-    if [ "${version}" == "1.23" ] || [ "${version}" == "1.24" ];then
+    
+    wget -O /etc/init.d/nginx ${download_Url}/init/nginx.init -T 20
+    if [ "${version}" == "1.23" ] || [ "${version}" == "1.24" ] || [ "${version}" == "tengine" ] || [ "${version}" == "1.25" ];then
         if [ -d "/www/server/btwaf" ];then
             rm -rf /www/server/btwaf/ngx
             rm -rf /www/server/btwaf/resty
             \cp -rpa /www/server/nginx/lib/lua/* /www/server/btwaf
+        elif [ -d "/www/server/free_waf" ];then
+            rm -rf /www/server/btwaf/ngx
+            rm -rf /www/server/btwaf/resty
+            \cp -rpa /www/server/nginx/lib/lua/* /www/server/free_waf
         else
             sed -i "/lua_package_path/d" /www/server/nginx/conf/nginx.conf
             sed -i '/include proxy\.conf;/a \        lua_package_path "/www/server/nginx/lib/lua/?.lua;;";' /www/server/nginx/conf/nginx.conf
         fi
+        wget -O /etc/init.d/nginx ${download_Url}/init/124nginx.init -T 20
     fi
 
-    wget -O /etc/init.d/nginx ${download_Url}/init/nginx.init -T 5
     chmod +x /etc/init.d/nginx
 }
 Set_Version() {
@@ -589,6 +753,10 @@ Uninstall_Nginx() {
     rm -rf ${Setup_Path}
     rm -rf /www/server/btwaf/ngx
     rm -rf /www/server/btwaf/resty
+    rm -rf /www/server/btwaf/librestysignal.so
+    rm -rf /www/server/btwaf/rds
+    rm -rf /www/server/btwaf/redis
+    rm -rf /www/server/btwaf/tablepool.lua
 }
 
 actionType=$1
@@ -641,6 +809,9 @@ else
         ;;
     '1.24')
         nginxVersion=${nginx_124}
+        ;;
+    '1.25')
+        nginxVersion=${nginx_125}
         ;;
     '1.8')
         nginxVersion=${nginx_108}

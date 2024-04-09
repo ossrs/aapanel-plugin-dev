@@ -44,6 +44,22 @@ RUN apt update -y && apt-get install -y docker.io make \
     ruby ruby-minitest ruby-net-telnet ruby-power-assert ruby-test-unit ruby-xmlrpc \
     ruby2.7 rubygems-integration unzip zip libcurl4 cmake libxslt-dev
 
+RUN apt-get install -y libssl-dev xterm dpkg-dev gnupg gpg libfreetype-dev libfreetype6-dev libice-dev libice6 libxaw7 \
+    pkg-config swig4.0 tcl tcl-dev tk tk8.6 x11-utils x11proto-dev xbitmaps libx11-dev libxau-dev libxdmcp-dev libxext-dev \
+    libxft-dev libxrender-dev bzip2-doc libdb5.3++ libdb5.3++-dev libdb5.3-dev libipset13 libjpeg-turbo8-dev \
+    libjpeg8-dev libpcap0.8 libpcap0.8-dev libpcre16-3 libpcre32-3 libpcrecpp0v5 libsm-dev libsqlite3-0 libxss-dev \
+    libxt-dev tk8.6-dev x11proto-scrnsaver-dev distro-info-data debian-keyring automake autotools-dev libsigsegv2 m4 \
+    re2c libzip5 bison-doc libfl-dev libfl2 gawk-doc libtinfo5 libncurses5-dev libltdl-dev libevent-2.1-7 \
+    libevent-core-2.1-7 libevent-extra-2.1-7 libevent-openssl-2.1-7 libevent-pthreads-2.1-7 zlibc libsasl2-dev \
+    libblkid-dev libblkid1 libglib2.0-bin libglib2.0-dev-bin libmount-dev libmount1 libpcre2-16-0 libpcre2-32-0 \
+    libpcre2-dev libpcre2-posix2 libselinux1-dev libsepol1-dev libjpeg62 libjpeg-dev libjpeg-turbo8-dev libjpeg8-dev \
+    comerr-dev krb5-multidev libgssrpc4 libkadm5clnt-mit11 libkadm5srv-mit11 libkdb5-9 libpq5 gettext-base libcroco3 \
+    libcap-dev libc-client2007e libpam0g libpam0g-dev mlock psmisc libc-ares2 libgd-tools libjbig-dev libjpeg-dev \
+    libjpeg-turbo8-dev libjpeg8-dev liblzma-dev libtiff-dev libtiffxx5 libvpx-dev libxpm-dev libwebpdemux2 \
+    liblockfile-bin liblockfile1 lockfile-progs procmail sendmail-base sendmail-bin sensible-mda anacron logrotate \
+    checksecurity libcurl4-doc libidn11-dev libkrb5-dev libldap2-dev librtmp-dev libssh2-1-dev readline-doc sqlite3-doc \
+    swig-doc swig-examples ncompress tar-scripts tar-doc tk-doc rsyslog debian-archive-keyring
+
 # See https://www.aapanel.com
 # Note: We use very simple user `ossrs` and password `12345678` for local development environment, you should change it in production environment.
 # Note: We disable the HTTPS by sed `SET_SSL=false` in install.sh.
@@ -64,7 +80,11 @@ RUN cd /tmp && \
 
 # Note: We install nginx 1.22 by default, like:
 #       http://localhost:7800/plugin?action=install_plugin
-#       sName=nginx&version=1.22&min_version=1&type=1
+#       sName=nginx&version=1.22&min_version=1&type=0
+# Install from binary:
+#       https://node.aapanel.com/install/4/nginx.sh
+# Build from source:
+#       https://node.aapanel.com/install/0/nginx.sh
 RUN cd /tmp && \
     echo "Install NGINX for aaPanel." && \
-    curl -sSL https://node.aapanel.com/install/4/nginx.sh |bash -s -- install 1.22
+    curl -sSL https://node.aapanel.com/install/0/nginx.sh |bash -s -- install 1.22
