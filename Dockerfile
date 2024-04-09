@@ -65,8 +65,6 @@ RUN cd /tmp && \
 # Note: We install nginx 1.22 by default, like:
 #       http://localhost:7800/plugin?action=install_plugin
 #       sName=nginx&version=1.22&min_version=1&type=1
-RUN if [[ $TARGETARCH != 'arm64' ]]; then \
-      cd /tmp && \
-      echo "Install NGINX for aaPanel." && \
-      curl -sSL https://node.aapanel.com/install/4/nginx.sh |bash -s -- install 1.22; \
-    fi
+RUN cd /tmp && \
+    echo "Install NGINX for aaPanel." && \
+    curl -sSL https://node.aapanel.com/install/4/nginx.sh |bash -s -- install 1.22
