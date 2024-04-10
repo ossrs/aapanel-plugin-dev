@@ -62,17 +62,17 @@ RUN apt-get install -y libssl-dev xterm dpkg-dev gnupg gpg libfreetype-dev libfr
 
 # See https://www.aapanel.com
 # Note: We use very simple user `ossrs` and password `12345678` for local development environment, you should change it in production environment.
-# Note: We disable the HTTPS by sed `SET_SSL=false` in install.sh.
+# Note: We disable the HTTPS by sed `SET_SSL=false` in install.sh. \
+# You can also set the user and password as:
+#    cd /www/server/panel && btpython -c 'import tools;tools.set_panel_username("ossrs")'
+#    cd /www/server/panel && btpython -c 'import tools;tools.set_panel_pwd("12345678")'
 RUN cd /tmp && \
-    wget -O install.sh http://www.aapanel.com/script/install-ubuntu_6.0_en.sh && \
-    sed -i 's/^    Set_Ssl/    #Set_Ssl/g' install.sh && \
-    env panelPort=7800 go=y bash install.sh aapanel
+    curl -o install.sh -sSL http://www.aapanel.com/script/install-ubuntu_6.0_en.sh && \
+    bash install.sh --port 7800 --user ossrs --password 12345678 -y --ssl-disable aapanel
 
 # Enable the develop debug mode and reset some params.
 RUN echo '/srsstack' > /www/server/panel/data/admin_path.pl && \
-    echo 'True' > /www/server/panel/data/debug.pl && \
-    cd /www/server/panel && btpython -c 'import tools;tools.set_panel_username("ossrs")' && \
-    cd /www/server/panel && btpython -c 'import tools;tools.set_panel_pwd("12345678")'
+    echo 'True' > /www/server/panel/data/debug.pl
 
 RUN cd /tmp && \
     echo "Install libs for aaPanel." && \

@@ -2,7 +2,6 @@
 PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
 export PATH
 LANG=en_US.UTF-8
-panelPort="7800"
 
 if [ $(whoami) != "root" ]; then
     echo "Please use the [root] user to execute the aapanel installation script!"
@@ -14,10 +13,12 @@ if [ "${is64bit}" != '64' ]; then
     Red_Error "Sorry, aaPanel does not support 32-bit systems"
 fi
 
-Centos6Check=$(cat /etc/redhat-release | grep ' 6.' | grep -iE 'centos|Red Hat')
-if [ "${Centos6Check}" ]; then
-    echo "Sorry, Centos6 does not support installing aaPanel"
-    exit 1
+if [ -f "/etc/redhat-release" ]; then
+    Centos6Check=$(cat /etc/redhat-release | grep ' 6.' | grep -iE 'centos|Red Hat')
+    if [ "${Centos6Check}" ]; then
+        echo "Sorry, Centos6 does not support installing aaPanel"
+        exit 1
+    fi
 fi
 
 UbuntuCheck=$(cat /etc/issue | grep Ubuntu | awk '{print $2}' | cut -f 1 -d '.')
@@ -26,14 +27,24 @@ if [ "${UbuntuCheck}" -lt "16" ]; then
     exit 1
 fi
 
+HOSTNAME_CHECK=$(cat /etc/hostname)
+if [ -z "${HOSTNAME_CHECK}" ];then
+    echo "hostname is empty and the aaPanel cannot be installed. Please consult the server operator to set the hostname and then reinstall."
+    exit 1
+fi
+
 cd ~
 setup_path="/www"
-SET_SSL=false
 python_bin=$setup_path/server/panel/pyenv/bin/python
 cpu_cpunt=$(cat /proc/cpuinfo | grep processor | wc -l)
+panelPort=$(expr $RANDOM % 55535 + 10000)
 if [ "$1" ]; then
     IDC_CODE=$1
 fi
+
+Command_Exists() {
+    command -v "$@" >/dev/null 2>&1
+}
 
 GetSysInfo() {
     if [ -s "/etc/redhat-release" ]; then
@@ -92,30 +103,13 @@ System_Check() {
     fi
 }
 Set_Ssl() {
-    echo -e ""
-    echo -e "----------------------------------------------------------------------"
-    echo -e "If you choose to enable SSL (self-signed certificate), you will use https access panel after installation."
-    echo -e "After logging in, you can go to the panel settings and change to Let's Encrypt certificate."
-    echo -e "SSL will be automatically enabled in 10 seconds."
-    echo -e "----------------------------------------------------------------------"
-    echo -e ""
-    read -t 10 -p "Do you need to enable the panel SSl ? (yes/n): " yes
+    SET_SSL=true
 
-    if [ $? != 0 ];then
-        SET_SSL=true
-    else
-        case "$yes" in
-            yes)
-                SET_SSL=true
-                ;;
-            n)
-                SET_SSL=false
-                ;;
-            *)
-                Set_Ssl
-        esac
+    if [ "${SSL_PL}" ];then
+    	SET_SSL=""
     fi
 }
+
 Get_Pack_Manager() {
     if [ -f "/usr/bin/yum" ] && [ -d "/etc/yum.repos.d" ]; then
         PM="yum"
@@ -148,11 +142,18 @@ Auto_Swap() {
     rm -f $swapFile
 }
 Service_Add() {
-    if [ "${PM}" == "yum" ] || [ "${PM}" == "dnf" ]; then
-        chkconfig --add bt
-        chkconfig --level 2345 bt on
-    elif [ "${PM}" == "apt-get" ]; then
-        update-rc.d bt defaults
+    if Command_Exists systemctl ; then
+        wget --no-check-certificate -O /usr/lib/systemd/system/btpanel.service ${download_Url}/init/systemd/btpanel.service -t 5 -T 15
+        systemctl daemon-reload
+        systemctl enable btpanel
+
+    else
+        if [ "${PM}" == "yum" ] || [ "${PM}" == "dnf" ]; then
+            chkconfig --add bt
+            chkconfig --level 2345 bt on
+        elif [ "${PM}" == "apt-get" ]; then
+            update-rc.d bt defaults
+        fi    
     fi
 }
 
@@ -190,9 +191,20 @@ get_node_url() {
         fi
     fi
 
-    echo '---------------------------------------------'
-    echo "Selected download node..."
-    nodes=(https://node.aapanel.com)
+    if [ -f "/www/node.pl" ];then
+        download_Url=$(cat /www/node.pl)
+        echo "Download node: $download_Url";
+        echo '---------------------------------------------';
+        return
+    fi
+    
+    echo '---------------------------------------------';
+    echo "Selected download node...";
+    nodes=(https://node.aapanel.com https://na1-node.bt.cn);
+
+    if [ "$1" ];then
+        nodes=($(echo ${nodes[*]}|sed "s#${1}##"))
+    fi
     tmp_file1=/dev/shm/net_test1.pl
     tmp_file2=/dev/shm/net_test2.pl
 
@@ -203,7 +215,7 @@ get_node_url() {
     touch $tmp_file1
     touch $tmp_file2
     for node in ${nodes[@]}; do
-        NODE_CHECK=$(curl --connect-timeout 3 -m 3 -w "%{http_code} %{time_total}" ${node}/net_test 2>/dev/null | xargs)
+        NODE_CHECK=$(curl -k --connect-timeout 3 -m 3 2>/dev/null -w "%{http_code} %{time_total}" ${node}/net_test|xargs)
         RES=$(echo ${NODE_CHECK} | awk '{print $1}')
         NODE_STATUS=$(echo ${NODE_CHECK} | awk '{print $2}')
         TIME_TOTAL=$(echo ${NODE_CHECK} | awk '{print $3 * 1000 - 500 }' | cut -d '.' -f 1)
@@ -294,7 +306,7 @@ Install_RPM_Pack() {
 
     sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config
     #yum remove -y python-requests python3-requests python-greenlet python3-greenlet
-    yumPacks="libcurl-devel wget tar gcc make zip unzip openssl openssl-devel gcc libxml2 libxml2-devel libxslt* zlib zlib-devel libjpeg-devel libpng-devel libwebp libwebp-devel freetype freetype-devel lsof pcre pcre-devel vixie-cron crontabs icu libicu-devel c-ares libffi-devel bzip2-devel ncurses-devel sqlite-devel readline-devel tk-devel gdbm-devel db4-devel libpcap-devel xz-devel"
+    yumPacks="libcurl-devel wget tar gcc make zip unzip openssl openssl-devel gcc libxml2 libxml2-devel libxslt* zlib zlib-devel libjpeg-devel libpng-devel libwebp libwebp-devel freetype freetype-devel lsof pcre pcre-devel vixie-cron crontabs icu libicu-devel c-ares libffi-devel bzip2-devel ncurses-devel sqlite-devel readline-devel tk-devel gdbm-devel db4-devel libpcap-devel xz-devel firewalld ipset"
     yum install -y ${yumPacks}
 
     for yumPack in ${yumPacks}; do
@@ -316,6 +328,10 @@ Install_RPM_Pack() {
 Install_Deb_Pack() {
     ln -sf bash /bin/sh
     apt-get update -y
+    apt-get install bash -y
+    if [ -f "/usr/bin/bash" ];then
+        ln -sf /usr/bin/bash /bin/sh
+    fi
     apt-get install ruby -y
     apt-get install lsb-release -y
     #apt-get install ntp ntpdate -y
@@ -335,13 +351,14 @@ Install_Deb_Pack() {
         apt-get install curl -y
     fi
 
-    debPacks="wget curl libcurl4-openssl-dev gcc make zip unzip tar openssl libssl-dev gcc libxml2 libxml2-dev zlib1g zlib1g-dev libjpeg-dev libpng-dev lsof libpcre3 libpcre3-dev cron net-tools swig build-essential libffi-dev libbz2-dev libncurses-dev libsqlite3-dev libreadline-dev tk-dev libgdbm-dev libdb-dev libdb++-dev libpcap-dev xz-utils git"
-    apt-get install -y $debPacks --force-yes
+    debPacks="wget curl libcurl4-openssl-dev gcc make zip unzip tar openssl libssl-dev gcc libxml2 libxml2-dev zlib1g zlib1g-dev libjpeg-dev libpng-dev lsof libpcre3 libpcre3-dev cron net-tools swig build-essential libffi-dev libbz2-dev libncurses-dev libsqlite3-dev libreadline-dev tk-dev libgdbm-dev libdb-dev libdb++-dev libpcap-dev xz-utils git ufw ipset sqlite3"
+
+    DEBIAN_FRONTEND=noninteractive apt-get install -y $debPacks --force-yes
 
     for debPack in ${debPacks}; do
         packCheck=$(dpkg -l ${debPack})
         if [ "$?" -ne "0" ]; then
-            apt-get install -y $debPack
+            DEBIAN_FRONTEND=noninteractive apt-get install -y $debPack
         fi
     done
     if [ ! -d '/etc/letsencrypt' ]; then
@@ -356,12 +373,33 @@ Install_Deb_Pack() {
 Get_Versions() {
     redhat_version_file="/etc/redhat-release"
     deb_version_file="/etc/issue"
+
+    if [[ $(grep Anolis /etc/os-release) ]] && [[ $(grep VERSION /etc/os-release|grep 8.8) ]];then
+        if [ -f "/usr/bin/yum" ];then
+            os_type="anolis"
+            os_version="8"
+            return
+        fi
+    fi
     if [ -f $redhat_version_file ]; then
         os_type='el'
         is_aliyunos=$(cat $redhat_version_file | grep Aliyun)
         if [ "$is_aliyunos" != "" ]; then
             return
         fi
+
+        if [[ $(grep "Alibaba Cloud" /etc/redhat-release) ]] && [[ $(grep al8 /etc/os-release) ]];then
+            os_type="ali-linux-"
+            os_version="al8"
+            return
+        fi
+
+        if [[ $(grep "TencentOS Server" /etc/redhat-release|grep 3.1) ]];then
+            os_type="TencentOS-"
+            os_version="3.1"
+            return
+        fi
+
         os_version=$(cat $redhat_version_file | grep CentOS | grep -Eo '([0-9]+\.)+[0-9]+' | grep -Eo '^[0-9]')
         if [ "${os_version}" = "5" ]; then
             os_version=""
@@ -417,7 +455,7 @@ Install_Python_Lib() {
             chmod -R 700 $pyenv_path/pyenv/bin
             is_package=$($python_bin -m psutil 2>&1 | grep package)
             if [ "$is_package" = "" ]; then
-                wget -O $pyenv_path/pyenv/pip.txt $download_Url/install/pyenv/pip_en.txt -T 5
+                wget --no-check-certificate -O $pyenv_path/pyenv/pip.txt $download_Url/install/pyenv/pip_en.txt -T 15
                 $pyenv_path/pyenv/bin/pip install -U pip
                 $pyenv_path/pyenv/bin/pip install -U setuptools
                 $pyenv_path/pyenv/bin/pip install -r $pyenv_path/pyenv/pip.txt
@@ -489,7 +527,11 @@ Install_Python_Lib() {
     fi
     if [ "${os_version}" != "" ]; then
         pyenv_file="/www/pyenv.tar.gz"
-        wget -O $pyenv_file $download_Url/install/pyenv/pyenv-${os_type}${os_version}-x${is64bit}.tar.gz -T 10
+        wget --no-check-certificate -O $pyenv_file $download_Url/install/pyenv/pyenv-${os_type}${os_version}-x${is64bit}.tar.gz -T 15
+        if [ "$?" != "0" ];then
+            get_node_url $download_Url
+            wget --no-check-certificate -O $pyenv_file $download_Url/install/pyenv/pyenv-${os_type}${os_version}-x${is64bit}.tar.gz -T 15
+        fi
         tmp_size=$(du -b $pyenv_file | awk '{print $1}')
         if [ $tmp_size -lt 703460 ]; then
             rm -f $pyenv_file
@@ -519,7 +561,7 @@ Install_Python_Lib() {
     cd /www
     python_src='/www/python_src.tar.xz'
     python_src_path="/www/Python-${py_version}"
-    wget -O $python_src $download_Url/src/Python-${py_version}.tar.xz -T 5
+    wget --no-check-certificate -O $python_src $download_Url/src/Python-${py_version}.tar.xz -T 15
     tmp_size=$(du -b $python_src | awk '{print $1}')
     if [ $tmp_size -lt 10703460 ]; then
         rm -f $python_src
@@ -537,8 +579,8 @@ Install_Python_Lib() {
     fi
     cd ~
     rm -rf $python_src_path
-    wget -O $pyenv_path/pyenv/bin/activate $download_Url/install/pyenv/activate.panel -T 5
-    wget -O $pyenv_path/pyenv/pip.txt $download_Url/install/pyenv/pip-3.7.8.txt -T 5
+    wget --no-check-certificate -O $pyenv_path/pyenv/bin/activate $download_Url/install/pyenv/activate.panel -T 15
+    wget --no-check-certificate -O $pyenv_path/pyenv/pip.txt $download_Url/install/pyenv/pip-3.7.8.txt -T 15
     ln -sf $pyenv_path/pyenv/bin/pip3.7 $pyenv_path/pyenv/bin/pip
     ln -sf $pyenv_path/pyenv/bin/python3.7 $pyenv_path/pyenv/bin/python
     ln -sf $pyenv_path/pyenv/bin/pip3.7 /usr/bin/btpip
@@ -558,10 +600,24 @@ Install_Python_Lib() {
     fi
 }
 
+delete_useless_package() {
+    /www/server/panel/pyenv/bin/pip uninstall aliyun-python-sdk-kms -y
+    /www/server/panel/pyenv/bin/pip uninstall aliyun-python-sdk-core -y
+    /www/server/panel/pyenv/bin/pip uninstall aliyun-python-sdk-core-v3 -y
+    /www/server/panel/pyenv/bin/pip uninstall qiniu -y
+    /www/server/panel/pyenv/bin/pip uninstall cos-python-sdk-v5 -y
+}
+
 Install_Bt() {
     if [ -f ${setup_path}/server/panel/data/port.pl ]; then
         panelPort=$(cat ${setup_path}/server/panel/data/port.pl)
     fi
+
+	if [ "${PANEL_PORT}" ];then
+		panelPort=$PANEL_PORT
+	fi
+
+    delete_useless_package
     
     mkdir -p ${setup_path}/server/panel/logs
     mkdir -p ${setup_path}/server/panel/vhost/apache
@@ -574,7 +630,7 @@ Install_Bt() {
     mkdir -p /www/backup/database
     mkdir -p /www/backup/site
 
-    if [ ! -d "/etc/init.d" ]; then
+    if [ ! -d "/etc/init.d" ];then
         mkdir -p /etc/init.d
     fi
 
@@ -583,9 +639,9 @@ Install_Bt() {
         sleep 1
     fi
 
-    wget -O panel.zip ${download_Url}/install/src/panel6_en.zip -T 10
-    wget -O /etc/init.d/bt ${download_Url}/install/src/bt6_en.init -T 10
-    wget -O /www/server/panel/install/public.sh ${download_Url}/install/public.sh -T 10
+    wget --no-check-certificate -O panel.zip ${download_Url}/install/src/panel6_en.zip -T 15
+    wget --no-check-certificate -O /etc/init.d/bt ${download_Url}/install/src/bt6_en.init -T 15
+    wget --no-check-certificate -O /www/server/panel/install/public.sh ${download_Url}/install/public.sh -T 15
 
     if [ -f "${setup_path}/server/panel/data/default.db" ]; then
         if [ -d "/${setup_path}/server/panel/old_data" ]; then
@@ -634,98 +690,111 @@ Install_Bt() {
     chmod -R +x ${setup_path}/server/panel/script
     ln -sf /etc/init.d/bt /usr/bin/bt
     echo "${panelPort}" >${setup_path}/server/panel/data/port.pl
-    wget -O /etc/init.d/bt ${download_Url}/install/src/bt6_en.init -T 10
-    wget -O /www/server/panel/init.sh ${download_Url}/install/src/bt6_en.init -T 10
-    wget -O /www/server/panel/data/softList.conf ${download_Url}/install/conf/softList_en.conf
+    wget --no-check-certificate -O /etc/init.d/bt ${download_Url}/install/src/bt6_en.init -T 15
+    wget --no-check-certificate -O /www/server/panel/init.sh ${download_Url}/install/src/bt6_en.init -T 15
+    wget --no-check-certificate -O /www/server/panel/data/softList.conf ${download_Url}/install/conf/softList_en.conf
 }
-Other_Openssl() {
-    openssl_version=$(openssl version | grep -Eo '[0-9]\.[0-9]\.[0-9]')
-    if [ "$openssl_version" = '1.0.1' ] || [ "$openssl_version" = '1.0.0' ]; then
-        opensslVersion="1.0.2r"
-        if [ ! -f "/usr/local/openssl/lib/libssl.so" ]; then
-            cd /www
-            openssl_src_file=/www/openssl.tar.gz
-            wget -O $openssl_src_file ${download_Url}/src/openssl-${opensslVersion}.tar.gz
-            tmp_size=$(du -b $openssl_src_file | awk '{print $1}')
-            if [ $tmp_size -lt 703460 ]; then
-                rm -f $openssl_src_file
-                Red_Error "ERROR: Download openssl-1.0.2 source code fielded."
-            fi
-            tar -zxf $openssl_src_file
-            rm -f $openssl_src_file
-            cd openssl-${opensslVersion}
-            #zlib-dynamic shared
-            ./config --openssldir=/usr/local/openssl zlib-dynamic shared
-            make -j${cpuCore}
-            make install
-            echo "/usr/local/openssl/lib" >/etc/ld.so.conf.d/zopenssl.conf
-            ldconfig
-            cd ..
-            rm -rf openssl-${opensslVersion}
-            is_export_openssl=1
-            cd ~
-        fi
-    fi
-}
+# Other_Openssl() {
+#     openssl_version=$(openssl version | grep -Eo '[0-9]\.[0-9]\.[0-9]')
+#     if [ "$openssl_version" = '1.0.1' ] || [ "$openssl_version" = '1.0.0' ]; then
+#         opensslVersion="1.0.2r"
+#         if [ ! -f "/usr/local/openssl/lib/libssl.so" ]; then
+#             cd /www
+#             openssl_src_file=/www/openssl.tar.gz
+#             wget --no-check-certificate -O $openssl_src_file ${download_Url}/src/openssl-${opensslVersion}.tar.gz
+#             tmp_size=$(du -b $openssl_src_file | awk '{print $1}')
+#             if [ $tmp_size -lt 703460 ]; then
+#                 rm -f $openssl_src_file
+#                 Red_Error "ERROR: Download openssl-1.0.2 source code fielded."
+#             fi
+#             tar -zxf $openssl_src_file
+#             rm -f $openssl_src_file
+#             cd openssl-${opensslVersion}
+#             #zlib-dynamic shared
+#             ./config --openssldir=/usr/local/openssl zlib-dynamic shared
+#             make -j${cpuCore}
+#             make install
+#             echo "/usr/local/openssl/lib" >/etc/ld.so.conf.d/zopenssl.conf
+#             ldconfig
+#             cd ..
+#             rm -rf openssl-${opensslVersion}
+#             is_export_openssl=1
+#             cd ~
+#         fi
+#     fi
+# }
 
-Insatll_Libressl() {
-    openssl_version=$(openssl version | grep -Eo '[0-9]\.[0-9]\.[0-9]')
-    if [ "$openssl_version" = '1.0.1' ] || [ "$openssl_version" = '1.0.0' ]; then
-        opensslVersion="3.0.2"
-        cd /www
-        openssl_src_file=/www/openssl.tar.gz
-        wget -O $openssl_src_file ${download_Url}/install/pyenv/libressl-${opensslVersion}.tar.gz
-        tmp_size=$(du -b $openssl_src_file | awk '{print $1}')
-        if [ $tmp_size -lt 703460 ]; then
-            rm -f $openssl_src_file
-            Red_Error "ERROR: Download libressl-$opensslVersion source code fielded."
-        fi
-        tar -zxf $openssl_src_file
-        rm -f $openssl_src_file
-        cd libressl-${opensslVersion}
-        ./config –prefix=/usr/local/lib
-        make -j${cpuCore}
-        make install
-        ldconfig
-        ldconfig -v
-        cd ..
-        rm -rf libressl-${opensslVersion}
-        is_export_openssl=1
-        cd ~
-    fi
-}
+# Insatll_Libressl() {
+#     openssl_version=$(openssl version | grep -Eo '[0-9]\.[0-9]\.[0-9]')
+#     if [ "$openssl_version" = '1.0.1' ] || [ "$openssl_version" = '1.0.0' ]; then
+#         opensslVersion="3.0.2"
+#         cd /www
+#         openssl_src_file=/www/openssl.tar.gz
+#         wget --no-check-certificate -O $openssl_src_file ${download_Url}/install/pyenv/libressl-${opensslVersion}.tar.gz
+#         tmp_size=$(du -b $openssl_src_file | awk '{print $1}')
+#         if [ $tmp_size -lt 703460 ]; then
+#             rm -f $openssl_src_file
+#             Red_Error "ERROR: Download libressl-$opensslVersion source code fielded."
+#         fi
+#         tar -zxf $openssl_src_file
+#         rm -f $openssl_src_file
+#         cd libressl-${opensslVersion}
+#         ./config –prefix=/usr/local/lib
+#         make -j${cpuCore}
+#         make install
+#         ldconfig
+#         ldconfig -v
+#         cd ..
+#         rm -rf libressl-${opensslVersion}
+#         is_export_openssl=1
+#         cd ~
+#     fi
+# }
 
-Centos6_Openssl() {
-    if [ "$os_type" != 'el' ]; then
-        return
-    fi
-    if [ "$os_version" != '6' ]; then
-        return
-    fi
-    echo 'Centos6 install openssl-1.0.2...'
-    openssl_rpm_file="/www/openssl.rpm"
-    wget -O $openssl_rpm_file $download_Url/rpm/centos6/${is64bit}/bt-openssl102.rpm -T 10
-    tmp_size=$(du -b $openssl_rpm_file | awk '{print $1}')
-    if [ $tmp_size -lt 102400 ]; then
-        rm -f $openssl_rpm_file
-        Red_Error "ERROR: Download python env fielded."
-    fi
-    rpm -ivh $openssl_rpm_file
-    rm -f $openssl_rpm_file
-    is_export_openssl=1
-}
+# Centos6_Openssl() {
+#     if [ "$os_type" != 'el' ]; then
+#         return
+#     fi
+#     if [ "$os_version" != '6' ]; then
+#         return
+#     fi
+#     echo 'Centos6 install openssl-1.0.2...'
+#     openssl_rpm_file="/www/openssl.rpm"
+#     wget --no-check-certificate -O $openssl_rpm_file $download_Url/rpm/centos6/${is64bit}/bt-openssl102.rpm -T 10
+#     tmp_size=$(du -b $openssl_rpm_file | awk '{print $1}')
+#     if [ $tmp_size -lt 102400 ]; then
+#         rm -f $openssl_rpm_file
+#         Red_Error "ERROR: Download python env fielded."
+#     fi
+#     rpm -ivh $openssl_rpm_file
+#     rm -f $openssl_rpm_file
+#     is_export_openssl=1
+# }
 
 
 Set_Bt_Panel() {
+    Run_User="www"
+	wwwUser=$(cat /etc/passwd|cut -d ":" -f 1|grep ^www$)
+	if [ "${wwwUser}" != "www" ];then
+		groupadd ${Run_User}
+		useradd -s /sbin/nologin -g ${Run_User} ${Run_User}
+	fi
     chmod -R 700 /www/server/panel/pyenv/bin
     /www/server/panel/pyenv/bin/pip install cachelib
     /www/server/panel/pyenv/bin/pip install python-telegram-bot
     password=$(cat /dev/urandom | head -n 16 | md5sum | head -c 8)
+    if [ "$PANEL_PASSWORD" ];then
+        password=$PANEL_PASSWORD
+    fi
     sleep 1
     admin_auth="/www/server/panel/data/admin_path.pl"
     if [ ! -f ${admin_auth} ]; then
         auth_path=$(cat /dev/urandom | head -n 16 | md5sum | head -c 8)
         echo "/${auth_path}" >${admin_auth}
+    fi
+    if [ "${SAFE_PATH}" ];then
+        auth_path=$SAFE_PATH
+        echo "/${auth_path}" > ${admin_auth}
     fi
     /www/server/panel/pyenv/bin/pip3 install pymongo
     /www/server/panel/pyenv/bin/pip3 install psycopg2-binary
@@ -753,10 +822,12 @@ Set_Bt_Panel() {
     $python_bin -m py_compile tools.py
     $python_bin tools.py username
     username=$($python_bin tools.py panel ${password})
+    if [ "$PANEL_USER" ];then
+        username=$PANEL_USER
+    fi
     cd ~
     echo "${password}" >${setup_path}/server/panel/default.pl
     chmod 600 ${setup_path}/server/panel/default.pl
-    /www/server/panel/pyenv/bin/pip install -I pyOpenSSl
     sleep 3
     /etc/init.d/bt restart
     sleep 3
@@ -770,6 +841,17 @@ Set_Bt_Panel() {
         lsattr python3.7 python
         Red_Error "ERROR: The BT-Panel service startup failed."
     fi
+
+    if [ "$PANEL_USER" ];then
+        cd ${setup_path}/server/panel/
+        btpython -c 'import tools;tools.set_panel_username("'$PANEL_USER'")'
+        cd ~
+    fi
+    if [ -f "/usr/bin/sqlite3" ] ;then
+        #sqlite3 /www/server/panel/data/db/panel.db "UPDATE config SET status = '1' WHERE id = '1';"  > /dev/null 2>&1
+        sqlite3 /www/server/panel/data/default.db "UPDATE config SET status = '1' WHERE id = '1';"  > /dev/null 2>&1
+    fi
+    
 }
 Set_Firewall() {
     sshPort=$(cat /etc/ssh/sshd_config | grep 'Port ' | awk '{print $2}')
@@ -780,6 +862,7 @@ Set_Firewall() {
             ufw allow 21/tcp
             ufw allow 22/tcp
             ufw allow 80/tcp
+            ufw allow 443/tcp
             ufw allow 888/tcp
             ufw allow 39000:40000/tcp
             ufw allow ${panelPort}/tcp
@@ -795,6 +878,7 @@ Set_Firewall() {
             iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport 21 -j ACCEPT
             iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport 22 -j ACCEPT
             iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport 80 -j ACCEPT
+            iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport 443 -j ACCEPT
             iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport ${panelPort} -j ACCEPT
             iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport ${sshPort} -j ACCEPT
             iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport 39000:40000 -j ACCEPT
@@ -821,6 +905,7 @@ Set_Firewall() {
             firewall-cmd --permanent --zone=public --add-port=21/tcp >/dev/null 2>&1
             firewall-cmd --permanent --zone=public --add-port=22/tcp >/dev/null 2>&1
             firewall-cmd --permanent --zone=public --add-port=80/tcp >/dev/null 2>&1
+            firewall-cmd --permanent --zone=public --add-port=443/tcp > /dev/null 2>&1
             firewall-cmd --permanent --zone=public --add-port=${panelPort}/tcp >/dev/null 2>&1
             firewall-cmd --permanent --zone=public --add-port=${sshPort}/tcp >/dev/null 2>&1
             firewall-cmd --permanent --zone=public --add-port=39000-40000/tcp >/dev/null 2>&1
@@ -864,7 +949,7 @@ Get_Ip_Address() {
     fi
 }
 Setup_Count() {
-    curl -sS --connect-timeout 10 -m 60 https://brandnew.aapanel.com/api/setupCount/setupPanel?type=Linux >/dev/null 2>&1
+    curl -sS --connect-timeout 10 -m 60 https://www.aapanel.com/api/setupCount/setupPanel?o=$1 >/dev/null 2>&1
     # curl -sS --connect-timeout 10 -m 60 https://console.aapanel.com/Api/SetupCount?type=Linux > /dev/null 2>&1
     if [ "$1" != "" ]; then
         echo $1 >/www/server/panel/data/o.pl
@@ -907,14 +992,44 @@ Install_Main() {
 
 echo "
 +----------------------------------------------------------------------
-| aaPanel 6.x FOR CentOS/Ubuntu/Debian
+| aaPanel FOR CentOS/Ubuntu/Debian
 +----------------------------------------------------------------------
-| Copyright © 2015-2099 BT-SOFT(http://www.aapanel.com) All rights reserved.
+| Copyright © 2015-2099 BT-SOFT(https://www.aapanel.com) All rights reserved.
 +----------------------------------------------------------------------
-| The WebPanel URL will be http://SERVER_IP:$panelPort when installed.
+| The WebPanel URL will be https://SERVER_IP:$panelPort when installed.
 +----------------------------------------------------------------------
 "
 
+while [ ${#} -gt 0 ]; do
+    case $1 in
+        -u|--user)
+            PANEL_USER=$2
+            shift 1
+            ;;
+        -p|--password)
+            PANEL_PASSWORD=$2
+            shift 1
+            ;;
+        -P|--port)
+            PANEL_PORT=$2
+            shift 1
+            ;;
+        --safe-path)
+            SAFE_PATH=$2
+            shift 1
+            ;;
+        --ssl-disable)
+            SSL_PL="disable"
+            ;;
+        -y)
+            go="y"
+            ;;
+        *)
+            IDC_CODE=$1
+            ;;
+    esac
+    shift 1
+done
 while [ "$go" != 'y' ] && [ "$go" != 'n' ]; do
     read -p "Do you want to install aaPanel to the $setup_path directory now?(y/n): " go
 done
