@@ -1,5 +1,7 @@
 # aapanel-plugin-dev
 
+**IMPORTANT NOTE**: This repository is depreacated and archived, please use [srs-cdk](https://github.com/ossrs/srs-cdk) instead. CDK is the future of default and recommended deployment for SRS and Oryx.
+
 Plugin develop environment for [aaPanel](https://www.aapanel.com)
 
 ## Usage
